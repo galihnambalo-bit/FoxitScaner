@@ -2,170 +2,55 @@ name: Build & Release APK
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version number (e.g. 1.0.1)'
-        required: false
-        default: ''
 
 jobs:
   build:
-    name: Build APK
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout kode
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2. Setup Java 17
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Setup Flutter
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
           channel: 'stable'
           cache: true
 
-      # 4. Cek versi Flutter
-      - name: Check Flutter Version
-        run: flutter --version
-
-      # 5. Get dependencies
-      - name: Get Flutter Dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      # 6. Decode keystore dari secret
-      - name: Decode Keystore
-        if: env.KEY_STORE_BASE64 != ''
-        env:
-          KEY_STORE_BASE64: ${{ secrets.KEY_STORE_BASE64 }}
+      - name: Fix edge_detection namespace
         run: |
-          echo "$KEY_STORE_BASE64" | base64 --decode > android/app/keystore.jks
-          echo "Keystore decoded successfully"
+          EDGE_BUILD="$HOME/.pub-cache/hosted/pub.dev/edge_detection-1.1.3/android/build.gradle"
+          if ! grep -q "namespace" "$EDGE_BUILD"; then
+            sed -i '/^android {/a\    namespace "com.sample.edge_detection"' "$EDGE_BUILD"
+          fi
 
-      # 7. Create key.properties (jika keystore tersedia)
-      - name: Create key.properties
-        if: env.KEY_STORE_BASE64 != ''
-        env:
-          KEY_STORE_BASE64: ${{ secrets.KEY_STORE_BASE64 }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      - name: Fix assets folder
+        run: mkdir -p assets/images && touch assets/images/.gitkeep
+
+      - name: Create local.properties
         run: |
-          cat > android/key.properties << EOF
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=keystore.jks
-          EOF
+          echo "flutter.sdk=$HOME/flutter" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
-      # 8. Analyze kode (opsional - lanjut meski ada warning)
-      - name: Analyze Flutter Code
-        run: flutter analyze --no-fatal-infos || true
-
-      # 9. Run tests
-      - name: Run Tests
-        run: flutter test || true
-
-      # 10. Build APK Debug (selalu berhasil tanpa keystore)
       - name: Build APK Debug
-        run: |
-          flutter build apk --debug \
-            --build-name="${{ github.event.inputs.version || '1.0.0' }}" \
-            --build-number="${{ github.run_number }}"
+        run: flutter build apk --debug --build-name="1.0.0" --build-number="${{ github.run_number }}"
 
-      # 11. Build APK Release (dengan atau tanpa signing)
       - name: Build APK Release
-        run: |
-          flutter build apk --release \
-            --build-name="${{ github.event.inputs.version || '1.0.0' }}" \
-            --build-number="${{ github.run_number }}"
+        run: flutter build apk --release --build-name="1.0.0" --build-number="${{ github.run_number }}" || true
 
-      # 12. Build App Bundle (untuk Play Store)
-      - name: Build App Bundle (AAB)
-        run: |
-          flutter build appbundle --release \
-            --build-name="${{ github.event.inputs.version || '1.0.0' }}" \
-            --build-number="${{ github.run_number }}" || true
-
-      # 13. Rename file APK
-      - name: Rename APK Files
-        run: |
-          VERSION="${{ github.event.inputs.version || '1.0.0' }}"
-          BUILD="${{ github.run_number }}"
-          
-          # Debug APK
-          mv build/app/outputs/flutter-apk/app-debug.apk \
-             build/app/outputs/flutter-apk/Foxit Scanner-v${VERSION}-debug.apk || true
-          
-          # Release APK
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/Foxit Scanner-v${VERSION}-release.apk || true
-
-      # 14. Upload APK sebagai artifact
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Foxit Scanner-Debug-APK
-          path: build/app/outputs/flutter-apk/Foxit Scanner-*-debug.apk
+          name: FoxitScanner-APK
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Foxit Scanner-Release-APK
-          path: build/app/outputs/flutter-apk/Foxit Scanner-*-release.apk
-          retention-days: 90
-
-      - name: Upload App Bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: Foxit Scanner-AppBundle-AAB
-          path: build/app/outputs/bundle/release/*.aab
-          retention-days: 90
-        continue-on-error: true
-
-      # 15. Buat GitHub Release otomatis kalau push tag
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Foxit Scanner ${{ github.ref_name }}"
-          body: |
-            ## 🚀 Foxit Scanner ${{ github.ref_name }}
-            
-            ### Download
-            - **Foxit Scanner-Release.apk** → Install langsung di Android
-            - **Foxit Scanner-Debug.apk** → Untuk testing
-            
-            ### Cara Install APK
-            1. Download file .apk di bawah
-            2. Buka file manager di HP Android
-            3. Tap file APK → Install
-            4. Jika muncul "Unknown Sources", aktifkan di Settings
-            
-            ### Changelog
-            - Scan dokumen dengan auto edge detection
-            - Export ke PDF
-            - Filter gambar (Magic, B&W, Grayscale)
-            - OCR dengan Google ML Kit (via rewarded ad)
-            - AdMob terintegrasi (Interstitial, Native, App Open, Rewarded)
-          files: |
-            build/app/outputs/flutter-apk/Foxit Scanner-*-release.apk
-            build/app/outputs/flutter-apk/Foxit Scanner-*-debug.apk
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
