@@ -103,7 +103,7 @@ class ScannerService {
     }
 
     // Simpan PDF
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await getExternalStorageDirectory();
     final pdfDir = Directory('${dir.path}/pdfs');
     if (!await pdfDir.exists()) await pdfDir.create(recursive: true);
 
