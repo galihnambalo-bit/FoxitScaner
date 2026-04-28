@@ -34,16 +34,24 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
       - name: Decode Keystore
-        if: ${{ secrets.KEY_STORE_BASE64 != '' }}
         env:
           KEY_STORE_BASE64: ${{ secrets.KEY_STORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          echo "$KEY_STORE_BASE64" | base64 --decode > android/app/keystore.jks
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
-          echo "storeFile=keystore.jks" >> android/key.properties
-          echo "✅ Keystore decoded"
+          if [ -n "$KEY_STORE_BASE64" ]; then
+            echo "$KEY_STORE_BASE64" | base64 --decode > android/app/keystore.jks
+            cat > android/key.properties << EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=keystore.jks
+          EOF
+            echo "✅ Keystore ready"
+          else
+            echo "⚠️ No keystore, release will use debug signing"
+          fi
 
       - name: Build APK Debug
         run: flutter build apk --debug --build-name="1.0.0" --build-number="${{ github.run_number }}"
@@ -51,22 +59,22 @@ jobs:
       - name: Build APK Release
         run: flutter build apk --release --build-name="1.0.0" --build-number="${{ github.run_number }}"
 
-      - name: Build App Bundle AAB (Play Store)
+      - name: Build AAB PlayStore
         run: flutter build appbundle --release --build-name="1.0.0" --build-number="${{ github.run_number }}"
 
-      - name: Rename APKs
+      - name: Rename outputs
         run: |
           mv build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/FoxitScanner-debug.apk
           mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/FoxitScanner-release.apk
 
-      - name: Upload APK Debug
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: FoxitScanner-DEBUG
           path: build/app/outputs/flutter-apk/FoxitScanner-debug.apk
           retention-days: 30
 
-      - name: Upload APK Release
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: FoxitScanner-RELEASE
