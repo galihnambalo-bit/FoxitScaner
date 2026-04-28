@@ -16,7 +16,6 @@ dependencies:
   image: ^4.1.7
   
   # Edge Detection & Image Processing
-  edge_detection: ^1.0.6
   
   # PDF Generation
   pdf: ^3.11.1
