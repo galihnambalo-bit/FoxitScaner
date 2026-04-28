@@ -33,17 +33,49 @@ jobs:
           echo "flutter.sdk=$HOME/flutter" > android/local.properties
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
+      - name: Decode Keystore
+        if: ${{ secrets.KEY_STORE_BASE64 != '' }}
+        env:
+          KEY_STORE_BASE64: ${{ secrets.KEY_STORE_BASE64 }}
+        run: |
+          echo "$KEY_STORE_BASE64" | base64 --decode > android/app/keystore.jks
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=keystore.jks" >> android/key.properties
+          echo "✅ Keystore decoded"
+
       - name: Build APK Debug
         run: flutter build apk --debug --build-name="1.0.0" --build-number="${{ github.run_number }}"
 
       - name: Build APK Release
-        run: flutter build apk --release --build-name="1.0.0" --build-number="${{ github.run_number }}" || true
+        run: flutter build apk --release --build-name="1.0.0" --build-number="${{ github.run_number }}"
 
-      - name: Upload APK
+      - name: Build App Bundle AAB (Play Store)
+        run: flutter build appbundle --release --build-name="1.0.0" --build-number="${{ github.run_number }}"
+
+      - name: Rename APKs
+        run: |
+          mv build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/FoxitScanner-debug.apk
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/FoxitScanner-release.apk
+
+      - name: Upload APK Debug
         uses: actions/upload-artifact@v4
         with:
-          name: FoxitScanner-APK
-          path: |
-            build/app/outputs/flutter-apk/app-debug.apk
-            build/app/outputs/flutter-apk/app-release.apk
+          name: FoxitScanner-DEBUG
+          path: build/app/outputs/flutter-apk/FoxitScanner-debug.apk
           retention-days: 30
+
+      - name: Upload APK Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoxitScanner-RELEASE
+          path: build/app/outputs/flutter-apk/FoxitScanner-release.apk
+          retention-days: 90
+
+      - name: Upload AAB PlayStore
+        uses: actions/upload-artifact@v4
+        with:
+          name: FoxitScanner-AAB-PlayStore
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 90
